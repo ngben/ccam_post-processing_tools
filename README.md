@@ -1,4 +1,4 @@
-# Tools for post-processing CCAM data after DRS-ing raw CCAM data in axiom
+# Tools for post-processing CCAM data after DRS-ing CCAM data in axiom
 
 ### aus20i_concat_day_mon
   - Used to concatenate daily and monthly data as per CORDEX-CMIP6 AUS-20i standards
