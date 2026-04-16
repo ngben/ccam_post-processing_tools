@@ -1,0 +1,4 @@
+README
+
+Use these files to update concatenated daily/monthly data with new years (e.g., replace 2027 data in 2026-2023 daily, 2021-2030 monthly)
+After running this script, bounds will need to be updated using scripts in aus20i_fix_day_mon_time_boundaries

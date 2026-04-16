@@ -1,0 +1,24 @@
+#!/bin/bash
+#PBS -P xv83
+#PBS -q normal
+#PBS -l walltime=48:00:00
+#PBS -l mem=24GB
+#PBS -l ncpus=1
+#PBS -l jobfs=400GB
+#PBS -l wd
+#PBS -m n
+#PBS -l storage=gdata/hh5+gdata/hd50+gdata/ia39+gdata/tp28+gdata/dp9+gdata/xv83+gdata/hq89+gdata/e53+scratch/e53+scratch/xv83+gdata/xp65
+
+module use /g/data/xp65/public/modules
+module load conda/analysis3-25.12
+
+cd $PBS_O_WORKDIR
+
+# Fallback to 'all' if FREQ isn't provided
+FREQ=${FREQ:-all}
+
+echo "Processing directory: $DIR"
+echo "Processing frequency: $FREQ"
+
+python check_all.py "$DIR" --freq "$FREQ" --fix
+#python check_all.py "$DIR" --freq "$FREQ"
