@@ -413,7 +413,9 @@ def apply_fixes(nc_path, variable_id, freq):
 
     # remove time chunks for fx
     if not has_time and 'chunks' in encoding[variable_id]:
-        pass
+        pass # this might not do anything, can try if needed:
+        #del encoding[variable_id]['chunks']
+        #print(f"      📦 Removed chunks for static variable {variable_id}")
 
     # Coordinates and Bounds (filtered for existence)
     for v in ['time', 'lat', 'lon', 'time_bnds', 'lat_bnds', 'lon_bnds']:
@@ -459,7 +461,7 @@ def apply_fixes(nc_path, variable_id, freq):
 def main():
     parser = argparse.ArgumentParser(description="Strict CORDEX-CMIP6 Integrity Checker and Fixer")
     parser.add_argument("directory", help="Target directory (Root, Model, or Scenario level)")
-    parser.add_argument("--fix", action="store_true", help="DANGER: Apply metadata fixes and generate time bounds, overwriting files.")
+    parser.add_argument("--run", action="store_true", help="DANGER: Apply metadata fixes and generate time bounds, overwriting files.")
     parser.add_argument("--freq", choices=["1hr", "6hr", "day", "mon", "fx", "all"], default="all", help="Target specific frequency to process")
     args = parser.parse_args()
     
@@ -468,7 +470,7 @@ def main():
         print(f"ERROR: Path does not exist: {target_path}")
         sys.exit(1)
 
-    if args.fix:
+    if args.run:
         print("\n" + "!"*80)
         print("⚠️  WARNING: Running in FIX mode. Non-compliant files will be permanently modified.")
         print("!"*80 + "\n")
@@ -546,7 +548,7 @@ def main():
                                         print(f"      - {issue}")
                                     
                                     # Trigger fixer if requested
-                                    if args.fix:
+                                    if args.run:
                                         apply_fixes(nc, variable_id, freq)
 
     print(f"\n{'='*80}\nEXECUTION COMPLETE\n{'='*80}")
