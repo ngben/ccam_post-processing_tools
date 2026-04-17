@@ -7,4 +7,4 @@
   - Used to reconcatenate individual daily/monthly files if a single year needs to be reprocessed in axiom
   
 ### aus20i_check_all
-  - Used to check all metadata for AUS-20i to ensure it meets CORDEX-CMIP6 specifications. Can also be used to fix metadata with "--fix" flag in check_all.pbs
+  - Used to check all metadata for AUS-20i to ensure it meets CORDEX-CMIP6 specifications. Can also be used to fix metadata with the `--run` flag in check_all.pbs
