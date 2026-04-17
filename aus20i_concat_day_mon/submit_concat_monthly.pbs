@@ -1,0 +1,17 @@
+#!/bin/bash
+#PBS -P e53
+#PBS -q normal
+#PBS -l walltime=12:00:00
+#PBS -l mem=24GB
+#PBS -l ncpus=1
+#PBS -l jobfs=400GB
+#PBS -l wd
+#PBS -m n
+#PBS -l storage=gdata/xp65+gdata/hd50+gdata/ia39+gdata/tp28+gdata/dp9+gdata/xv83+gdata/hq89+scratch/e53+scratch/xv83+gdata/xv83
+
+module use /g/data3/xp65/public/modules
+module load conda/analysis3
+
+cd $PBS_O_WORKDIR
+
+python concat_monthly.py "$DIR"

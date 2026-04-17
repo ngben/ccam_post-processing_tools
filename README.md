@@ -8,6 +8,3 @@
   
 ### aus20i_check_all
   - Used to check all metadata for AUS-20i to ensure it meets CORDEX-CMIP6 specifications. Can also be used to fix metadata with "--fix" flag in check_all.pbs
-
-### To do:
-  - Modify aus20i_concat_day_mon scripts to use xarray instead of CDO. CDO inserts metadata and doesn't compress as well
