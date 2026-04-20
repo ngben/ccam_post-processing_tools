@@ -212,16 +212,35 @@ def check_file_calendar(ds, filepath, expected_calendar=None, freq=None):
     errors = []
     try:
         variable_id = filepath.name.split('_')[0]
+
+        # 1. Try to get official method
         official_method = get_official_cell_method(variable_id, freq)
-        should_be_instantaneous = official_method and "time: point" in official_method.lower()
+
+        # 2. Determine validation rule (Fallback Logic)
+        if official_method:
+            # Use the CSV standard if available
+            should_be_instantaneous = "time: point" in official_method.lower()
+            method_source = f"official CORDEX spec ('{official_method}')"
+        else:
+            # Fallback: Use the file's own metadata
+            actual_cell_method = ds[variable_id].attrs.get('cell_methods', "")
+            should_be_instantaneous = "time: point" in actual_cell_method.lower()
+            method_source = f"file attribute cell_methods ('{actual_cell_method}')"
+            # Optional: Keep the notice that it wasn't in the CSV
+            # errors.append(f"Notice: Variable '{variable_id}' at frequency '{freq}' not found in CSV. Using file metadata.")
 
         if 'time' in ds.coords:
             actual_calendar = ds.time.encoding.get('calendar') or ds.time.attrs.get('calendar')
             actual_units = ds.time.encoding.get('units') or ds.time.attrs.get('units')
-            if actual_units != EXPECTED_TIME_UNITS: errors.append(f"Time Unit Mismatch: Found '{actual_units}', Expected '{EXPECTED_TIME_UNITS}'")
-            if actual_calendar is None: errors.append("Time calendar attribute missing.")
-            elif expected_calendar and actual_calendar != expected_calendar: errors.append(f"Calendar Mismatch: {actual_calendar} != {expected_calendar}")
-            
+
+            if actual_units != EXPECTED_TIME_UNITS:
+                errors.append(f"Time Unit Mismatch: Found '{actual_units}', Expected '{EXPECTED_TIME_UNITS}'")
+
+            if actual_calendar is None:
+                errors.append("Time calendar attribute missing.")
+            elif expected_calendar and actual_calendar != expected_calendar:
+                errors.append(f"Calendar Mismatch: {actual_calendar} != {expected_calendar}")
+
             if freq and freq != 'fx':
                 expected_len = get_expected_steps(filepath, freq)
                 actual_len = ds.sizes['time']
@@ -229,19 +248,27 @@ def check_file_calendar(ds, filepath, expected_calendar=None, freq=None):
                     errors.append(f"Time Step Mismatch: Found {actual_len}, Expected {expected_len} based on filename")
 
             has_time_bnds = "time_bnds" in ds.variables
+
             if should_be_instantaneous:
-                if has_time_bnds: errors.append(f"Instantaneous '{variable_id}' (time: point) should NOT have time_bnds")
+                if has_time_bnds:
+                    errors.append(f"Instantaneous '{variable_id}' based on {method_source} should NOT have time_bnds")
             else:
-                if not has_time_bnds: errors.append(f"Non-instantaneous '{variable_id}' (time: mean/max/min) is missing time_bnds")
+                if not has_time_bnds:
+                    errors.append(f"Non-instantaneous '{variable_id}' based on {method_source} is missing time_bnds")
                 else:
+                    # Midpoint validation for non-instantaneous data
                     t_vals = ds.time.values
                     bnd_vals = ds['time_bnds'].values
                     for i in range(len(t_vals)):
+                        # Using np.isclose for floating point safety with time coordinates
                         expected_mid = (bnd_vals[i, 0] + bnd_vals[i, 1]) / 2
                         if not np.isclose(t_vals[i].astype(float), expected_mid.astype(float), atol=1e-5):
                             errors.append(f"Time index {i} midpoint error (not centered in time_bnds)")
                             break
-    except Exception as e: return [f"CRITICAL ERROR (Time/Calendar check failed): {str(e)}"]
+
+    except Exception as e:
+        return [f"CRITICAL ERROR (Time/Calendar check failed): {str(e)}"]
+
     return errors
 
 def check_lat_lon_boundaries(ds):
@@ -413,9 +440,7 @@ def apply_fixes(nc_path, variable_id, freq):
 
     # remove time chunks for fx
     if not has_time and 'chunks' in encoding[variable_id]:
-        pass # this might not do anything, can try if needed:
-        #del encoding[variable_id]['chunks']
-        #print(f"      📦 Removed chunks for static variable {variable_id}")
+        pass
 
     # Coordinates and Bounds (filtered for existence)
     for v in ['time', 'lat', 'lon', 'time_bnds', 'lat_bnds', 'lon_bnds']:
@@ -461,7 +486,7 @@ def apply_fixes(nc_path, variable_id, freq):
 def main():
     parser = argparse.ArgumentParser(description="Strict CORDEX-CMIP6 Integrity Checker and Fixer")
     parser.add_argument("directory", help="Target directory (Root, Model, or Scenario level)")
-    parser.add_argument("--run", action="store_true", help="DANGER: Apply metadata fixes and generate time bounds, overwriting files.")
+    parser.add_argument("--fix", action="store_true", help="DANGER: Apply metadata fixes and generate time bounds, overwriting files.")
     parser.add_argument("--freq", choices=["1hr", "6hr", "day", "mon", "fx", "all"], default="all", help="Target specific frequency to process")
     args = parser.parse_args()
     
@@ -470,7 +495,7 @@ def main():
         print(f"ERROR: Path does not exist: {target_path}")
         sys.exit(1)
 
-    if args.run:
+    if args.fix:
         print("\n" + "!"*80)
         print("⚠️  WARNING: Running in FIX mode. Non-compliant files will be permanently modified.")
         print("!"*80 + "\n")
@@ -548,7 +573,7 @@ def main():
                                         print(f"      - {issue}")
                                     
                                     # Trigger fixer if requested
-                                    if args.run:
+                                    if args.fix:
                                         apply_fixes(nc, variable_id, freq)
 
     print(f"\n{'='*80}\nEXECUTION COMPLETE\n{'='*80}")

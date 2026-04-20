@@ -20,5 +20,5 @@ FREQ=${FREQ:-all}
 echo "Processing directory: $DIR"
 echo "Processing frequency: $FREQ"
 
-python check_all.py "$DIR" --freq "$FREQ" --fix
-#python check_all.py "$DIR" --freq "$FREQ"
+python check_all.py "$DIR" --freq "$FREQ"
+#python check_all.py "$DIR" --freq "$FREQ" --fix
