@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 sys.path.append("/g/data/xv83/users/bxn599/miniconda3/envs/axiom_20i_test/lib/python3.12/site-packages")
 try:
     from axiom.config import load_config
+    from axiom.drs.processing.ccam import has_height, has_height_attr
     AXIOM_CONFIG = load_config('drs_20i')
 except ImportError:
     print("⚠️  Warning: Could not load axiom.config. Falling back to default encoding.")
@@ -371,6 +372,12 @@ def apply_fixes(nc_path, variable_id, freq):
     # Load dataset. decode_times=True is safe even if 'time' is missing.
     ds = xr.open_dataset(nc_path, decode_times=True)
     
+    # remove height variable as a scalar coordinate
+    _has_height, hcoord = has_height(ds, variable_id)
+    if _has_height:
+        ds = ds.reset_coords(hcoord, drop=False)
+        ds[variable_id].attrs["coordinates"] = hcoord
+
     # Safely extract time metadata only if time exists
     has_time = 'time' in ds.coords
     input_time_units = ds.time.encoding.get('units') if has_time else None
@@ -438,6 +445,11 @@ def apply_fixes(nc_path, variable_id, freq):
     else:
         encoding[variable_id] = {'dtype': 'float32', '_FillValue': 1e20, 'missing_value': 1e20}
 
+    # Update height scalar coordinate encoding
+    _has_height, hcoord = has_height_attr(ds, variable_id)
+    if _has_height:
+        encoding[hcoord] = AXIOM_CONFIG.encoding[hcoord]
+
     # remove time chunks for fx
     if not has_time and 'chunks' in encoding[variable_id]:
         pass
@@ -471,6 +483,10 @@ def apply_fixes(nc_path, variable_id, freq):
         if has_time and 'time' in ds.dims:
             write_args["unlimited_dims"] = ['time']
 
+        # remove coordinates encoding if it is part of the variable
+        if 'coordinates' in ds_merged[variable_id].encoding:
+            del ds_merged[variable_id].encoding['coordinates']
+            
         ds.to_netcdf(str(nc_path), **write_args)
         
         backup_path.unlink() 

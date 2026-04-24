@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 sys.path.append("/g/data/xv83/users/bxn599/miniconda3/envs/axiom_20i_test/lib/python3.12/site-packages")
 try:
     from axiom.config import load_config
+    from axiom.drs.processing.ccam import has_height, has_height_attr
     AXIOM_CONFIG = load_config('drs_20i')
 except ImportError:
     print("⚠️  Warning: Could not load axiom.config. Falling back to default encoding.")
@@ -138,6 +139,12 @@ def concatenate_files(start_year, end_year, dir_path, backup_dir):
         # Retain original global attributes
         ds_merged.attrs = ds_ref.attrs.copy()
 
+        # remove height variable as a scalar coordinate
+        _has_height, hcoord = has_height(ds_merged, variable_id)
+        if _has_height:
+            ds_merged = ds_merged.reset_coords(hcoord, drop=False)
+            ds_merged[variable_id].attrs["coordinates"] = hcoord
+
         # --- Apply Exact Output Encoding ---
         encoding = {}
         
@@ -149,6 +156,11 @@ def concatenate_files(start_year, end_year, dir_path, backup_dir):
                 encoding[variable_id]['missing_value'] = encoding[variable_id]['_FillValue']
         else:
             encoding[variable_id] = {'dtype': 'float32', '_FillValue': 1e20, 'missing_value': 1e20}
+
+        # Update height scalar coordinate encoding
+        _has_height, hcoord = has_height_attr(ds_merged, variable_id)
+        if _has_height:
+            encoding[hcoord] = AXIOM_CONFIG.encoding[hcoord]
 
         # Coordinates and Bounds
         for v in ['time', 'lat', 'lon', 'time_bnds', 'lat_bnds', 'lon_bnds']:
@@ -174,6 +186,10 @@ def concatenate_files(start_year, end_year, dir_path, backup_dir):
         
         if has_time and 'time' in ds_merged.dims:
             write_args["unlimited_dims"] = ['time']
+
+        # remove coordinates encoding if it is part of the variable
+        if 'coordinates' in ds_merged[variable_id].encoding:
+            del ds_merged[variable_id].encoding['coordinates']
 
         ds_merged.to_netcdf(temp_filepath, **write_args)
 
