@@ -140,6 +140,11 @@ EXPECTED_DRIVING_EXPERIMENT = {
     "ssp585": "update of RCP8.5 based on SSP5",
 }
 
+EXPECTED_DOMAIN_BOUNDS = {
+    "lat": (-52.3, 8.7),
+    "lon": (89.3, 181.9)
+}
+
 DATASET_TABLE = None
 
 # --- Helper & Checking Functions ---
@@ -208,6 +213,26 @@ def get_official_cell_method(variable_id, freq):
         match = DATASET_TABLE[(DATASET_TABLE[var_col].str.lower() == variable_id.lower()) & (DATASET_TABLE['frequency'] == freq)]
         if not match.empty: return str(match.iloc[0]['cell_methods']).strip()
     except KeyError: return None
+
+def check_domain_boundaries(ds):
+    """Checks if the actual grid exceeds the expected bounding box limits."""
+    errors = []
+    if 'lat' not in ds.coords or 'lon' not in ds.coords:
+        return errors
+
+    lat_min_exp, lat_max_exp = EXPECTED_DOMAIN_BOUNDS["lat"]
+    lon_min_exp, lon_max_exp = EXPECTED_DOMAIN_BOUNDS["lon"]
+
+    lat_min, lat_max = ds.lat.min().values, ds.lat.max().values
+    lon_min, lon_max = ds.lon.min().values, ds.lon.max().values
+
+    # 1e-4 tolerance to prevent strictly floating point failures 
+    if lat_min < lat_min_exp - 1e-4 or lat_max > lat_max_exp + 1e-4:
+        errors.append(f"Domain Lat exceeds bounds: [{lat_min:.3f}, {lat_max:.3f}] > Expected [{lat_min_exp}, {lat_max_exp}]")
+    if lon_min < lon_min_exp - 1e-4 or lon_max > lon_max_exp + 1e-4:
+        errors.append(f"Domain Lon exceeds bounds: [{lon_min:.3f}, {lon_max:.3f}] > Expected [{lon_min_exp}, {lon_max_exp}]")
+
+    return errors
 
 def check_file_calendar(ds, filepath, expected_calendar=None, freq=None):
     errors = []
@@ -372,6 +397,25 @@ def apply_fixes(nc_path, variable_id, freq):
     # Load dataset. decode_times=True is safe even if 'time' is missing.
     ds = xr.open_dataset(nc_path, decode_times=True)
     
+    # reduce spatial domain if needed
+    if 'lat' in ds.coords and 'lon' in ds.coords:
+        lat_min_exp, lat_max_exp = EXPECTED_DOMAIN_BOUNDS["lat"]
+        lon_min_exp, lon_max_exp = EXPECTED_DOMAIN_BOUNDS["lon"]
+
+        lat_min, lat_max = ds.lat.min().values, ds.lat.max().values
+        lon_min, lon_max = ds.lon.min().values, ds.lon.max().values
+
+        if (lat_min < lat_min_exp - 1e-4 or lat_max > lat_max_exp + 1e-4 or 
+            lon_min < lon_min_exp - 1e-4 or lon_max > lon_max_exp + 1e-4):
+            print(f"      ✂️ Reducing domain size to Lat: [{lat_min_exp}, {lat_max_exp}], Lon: [{lon_min_exp}, {lon_max_exp}]")
+            
+            # Xarray slicing needs to respect coordinate ascending/descending orientation
+            lat_start, lat_end = (lat_min_exp, lat_max_exp) if ds.lat[0] < ds.lat[-1] else (lat_max_exp, lat_min_exp)
+            lon_start, lon_end = (lon_min_exp, lon_max_exp) if ds.lon[0] < ds.lon[-1] else (lon_max_exp, lon_min_exp)
+            
+            # Subsetting efficiently using .sel()
+            ds = ds.sel(lat=slice(lat_start, lat_end), lon=slice(lon_start, lon_end))
+
     # remove height variable as a scalar coordinate
     _has_height, hcoord = has_height(ds, variable_id)
     if _has_height:
@@ -484,8 +528,8 @@ def apply_fixes(nc_path, variable_id, freq):
             write_args["unlimited_dims"] = ['time']
 
         # remove coordinates encoding if it is part of the variable
-        if 'coordinates' in ds_merged[variable_id].encoding:
-            del ds_merged[variable_id].encoding['coordinates']
+        if 'coordinates' in ds[variable_id].encoding:
+            del ds[variable_id].encoding['coordinates']
             
         ds.to_netcdf(str(nc_path), **write_args)
         
@@ -578,6 +622,7 @@ def main():
                                         issues.extend(check_file_calendar(ds, nc, expected_calendar=ref_cal, freq=freq))
                                         issues.extend(check_global_attributes(ds, EXPECTED_GLOBAL_ATTRIBUTES, path_metadata, freq))
                                         issues.extend(check_lat_lon_boundaries(ds))
+                                        issues.extend(check_domain_boundaries(ds))
                                         issues.extend(check_variable_metadata(ds, variable_id, freq))
                                 except Exception as e:
                                     issues.append(f"Attribute Read Error: {str(e)}")
