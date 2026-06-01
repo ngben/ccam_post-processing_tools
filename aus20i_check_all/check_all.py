@@ -94,7 +94,7 @@ EXPECTED_FILES = {
 
 EXPECTED_GLOBAL_ATTRIBUTES = {
     "Conventions": "CF-1.11",
-    "source": "Conformal Cubic Atmospheric Model v2203",
+    "source": "Conformal Cubic Atmospheric Model, ocean-coupled configuration, version 2203 with spectral nudging",
     "institution": "Commonwealth Scientific and Industrial Research Organisation, Canberra, Australia",
     "activity_id": "DD",
     "contact": "ccam@csiro.au",
@@ -106,10 +106,11 @@ EXPECTED_GLOBAL_ATTRIBUTES = {
     "grid": "Unrotated latitude/longitude grid interpolated from a variable resolution conformal cubic C384 grid with Schmidt=2.1",
     "product": "model-output",
     "project_id": "CORDEX-CMIP6",
-    "source_id": "CCAM-v2203-SN",
+    "source_id": "CCAMoc-v2203-SN",
     "source_type": "AOGCM",
     "version_realization": "v1-r1",
     "doi": "https://doi.org/10.25914/rd73-4m38",
+    "references": "https://research.csiro.au/ccam/"
 }
 
 EXPECTED_CALENDAR = {
