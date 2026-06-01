@@ -1,6 +1,7 @@
 import xarray as xr
 import numpy as np
 import pandas as pd
+import cftime
 from pathlib import Path
 import argparse
 import sys
@@ -181,21 +182,52 @@ def get_driving_metadata_from_path(target_dir):
         }
     except (ValueError, IndexError): return {}
 
-def get_expected_steps(filename, freq):
+def get_expected_steps(filename, freq, calendar='standard'):
     try:
         parts = filename.stem.split('_')
         start_str, end_str = parts[-1].split('-')
+        
+        # Pads dates cleanly up to minutes so string slicing index is always static
         def fix_date(s):
-            if len(s) == 4: return f"{s}0101"
-            if len(s) == 6: return f"{s}01"
+            if len(s) == 4: return f"{s}01010000"
+            if len(s) == 6: return f"{s}010000"
+            if len(s) == 8: return f"{s}0000"
             return s
-        start_dt, end_dt = pd.to_datetime(fix_date(start_str)), pd.to_datetime(fix_date(end_str))
-        if freq == 'mon': return (end_dt.year - start_dt.year) * 12 + (end_dt.month - start_dt.month) + 1
-        delta_seconds = (end_dt - start_dt).total_seconds()
-        if freq == 'day': return int(delta_seconds / 86400) + 1
+
+        start_full = fix_date(start_str)
+        end_full = fix_date(end_str)
+
+        # Standard pandas path for normal calendars
+        if calendar in ['standard', 'gregorian', None]:
+            start_dt = pd.to_datetime(start_full[:12], format="%Y%m%d%H%M")
+            end_dt = pd.to_datetime(end_full[:12], format="%Y%m%d%H%M")
+            
+            if freq == 'mon': 
+                return (end_dt.year - start_dt.year) * 12 + (end_dt.month - start_dt.month) + 1
+            
+            delta_seconds = (end_dt - start_dt).total_seconds()
+        
+        # Climate calendar path (noleap, 365_day, 360_day, etc.)
+        else:
+            # Slicing out components: YYYY, MM, DD, HH, MM
+            s_yr, s_mon, s_day, s_hr, s_min = int(start_full[:4]), int(start_full[4:6]), int(start_full[6:8]), int(start_full[8:10]), int(start_full[10:12])
+            e_yr, e_mon, e_day, e_hr, e_min = int(end_full[:4]), int(end_full[4:6]), int(end_full[6:8]), int(end_full[8:10]), int(end_full[10:12])
+            
+            start_dt = cftime.datetime(s_yr, s_mon, s_day, s_hr, s_min, calendar=calendar)
+            end_dt = cftime.datetime(e_yr, e_mon, e_day, e_hr, e_min, calendar=calendar)
+            
+            if freq == 'mon':
+                return (end_dt.year - start_dt.year) * 12 + (end_dt.month - start_dt.month) + 1
+            
+            delta_seconds = (end_dt - start_dt).total_seconds()
+
+        # Math logic remains exactly as you built it
+        if freq == 'day':   return int(delta_seconds / 86400) + 1
         elif freq == '6hr': return int(delta_seconds / 21600) + 1
         elif freq == '1hr': return int(delta_seconds / 3600) + 1
-    except Exception: return None
+        
+    except Exception: 
+        return None
 
 def get_reference_calendar(files, driving_source_id=None):
     if driving_source_id in EXPECTED_CALENDAR: return EXPECTED_CALENDAR[driving_source_id]
@@ -244,18 +276,15 @@ def check_file_calendar(ds, filepath, expected_calendar=None, freq=None):
 
         # 2. Determine validation rule (Fallback Logic)
         if official_method:
-            # Use the CSV standard if available
             should_be_instantaneous = "time: point" in official_method.lower()
             method_source = f"official CORDEX spec ('{official_method}')"
         else:
-            # Fallback: Use the file's own metadata
             actual_cell_method = ds[variable_id].attrs.get('cell_methods', "")
             should_be_instantaneous = "time: point" in actual_cell_method.lower()
             method_source = f"file attribute cell_methods ('{actual_cell_method}')"
-            # Optional: Keep the notice that it wasn't in the CSV
-            # errors.append(f"Notice: Variable '{variable_id}' at frequency '{freq}' not found in CSV. Using file metadata.")
 
         if 'time' in ds.coords:
+            # --- CRITICAL CHANGE: Extract Calendar and Units early ---
             actual_calendar = ds.time.encoding.get('calendar') or ds.time.attrs.get('calendar')
             actual_units = ds.time.encoding.get('units') or ds.time.attrs.get('units')
 
@@ -267,11 +296,14 @@ def check_file_calendar(ds, filepath, expected_calendar=None, freq=None):
             elif expected_calendar and actual_calendar != expected_calendar:
                 errors.append(f"Calendar Mismatch: {actual_calendar} != {expected_calendar}")
 
+            # --- CRITICAL CHANGE: Pass the calendar to the step checker ---
             if freq and freq != 'fx':
-                expected_len = get_expected_steps(filepath, freq)
+                calendar_to_use = actual_calendar if actual_calendar else 'standard'
+                expected_len = get_expected_steps(filepath, freq, calendar=calendar_to_use)
+                
                 actual_len = ds.sizes['time']
                 if expected_len is not None and actual_len != expected_len:
-                    errors.append(f"Time Step Mismatch: Found {actual_len}, Expected {expected_len} based on filename")
+                    errors.append(f"Time Step Mismatch: Found {actual_len}, Expected {expected_len} based on filename and calendar '{calendar_to_use}'")
 
             has_time_bnds = "time_bnds" in ds.variables
 
@@ -282,11 +314,9 @@ def check_file_calendar(ds, filepath, expected_calendar=None, freq=None):
                 if not has_time_bnds:
                     errors.append(f"Non-instantaneous '{variable_id}' based on {method_source} is missing time_bnds")
                 else:
-                    # Midpoint validation for non-instantaneous data
                     t_vals = ds.time.values
                     bnd_vals = ds['time_bnds'].values
                     for i in range(len(t_vals)):
-                        # Using np.isclose for floating point safety with time coordinates
                         expected_mid = (bnd_vals[i, 0] + bnd_vals[i, 1]) / 2
                         if not np.isclose(t_vals[i].astype(float), expected_mid.astype(float), atol=1e-5):
                             errors.append(f"Time index {i} midpoint error (not centered in time_bnds)")
