@@ -14,4 +14,5 @@ module load conda/analysis3
 
 cd $PBS_O_WORKDIR
 
-python concat_monthly.py "$DIR"
+#python concat_monthly.py "$DIR"
+python concat_monthly.py "$DIR" --run

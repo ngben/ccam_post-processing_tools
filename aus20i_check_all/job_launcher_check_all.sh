@@ -4,17 +4,15 @@
 BASE_DIRS=(
 #    "/g/data/xv83/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ERA5/evaluation"
 #    "/scratch/e53/bxn599/axiom_20i/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ACCESS-CM2/historical"
-#    "/scratch/xv83/bxn599/test_aus20i_fix_script/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ACCESS-CM2/historical"
-#    "/scratch/xv83/bxn599/axiom_20i_test_lookup/CORDEX-CMIP6/DD/AUS-20i/CSIRO/CMCC-ESM2/historical"
-#    "/scratch/xv83/bxn599/axiom_20i_test_lookup/CORDEX-CMIP6/DD/AUS-20i/CSIRO/CMCC-ESM2/ssp126"
-#    "/scratch/xv83/bxn599/axiom_20i_test_lookup/CORDEX-CMIP6/DD/AUS-20i/CSIRO/CMCC-ESM2/ssp370"
-    "/scratch/e53/bxn599/axiom_20i_2026-04-16_processing/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ACCESS-ESM1-5/historical"
+    "/scratch/e53/bxn599/axiom_20i_2026-05-25/CORDEX-CMIP6/DD/AUS-20i/CSIRO/EC-Earth3/historical"
+#    "/scratch/e53/bxn599/axiom_20i_2026-05-25/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ACCESS-ESM1-5/ssp126"
+#    "/scratch/e53/bxn599/axiom_20i_2026-05-25/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ACCESS-ESM1-5/ssp370"
 #    "/scratch/xv83/bxn599/ERA5/evaluation"
 )
 
 # Define the frequencies to process
 FREQUENCIES=("1hr" "6hr" "day" "mon" "fx")
-#FREQUENCIES=("fx" "mon" "day" "6hr")
+#FREQUENCIES=("mon" "day")
 
 for DIR in "${BASE_DIRS[@]}"; do
     # Extract model and scenario from the path
