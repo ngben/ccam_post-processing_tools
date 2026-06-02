@@ -8,6 +8,7 @@ import sys
 import warnings
 import os
 import shutil
+import site
 
 # Suppress DeprecationWarnings from newer Xarray versions regarding use_cftime
 warnings.filterwarnings("ignore", category=DeprecationWarning)
