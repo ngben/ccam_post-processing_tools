@@ -13,7 +13,7 @@ import shutil
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # --- Environment & Configuration ---
-sys.path.append("/g/data/xv83/users/bxn599/miniconda3/envs/axiom_20i_test/lib/python3.12/site-packages")
+sys.path.append("/g/data/xv83/users/bxn599/miniconda3/envs/axiom_20i/lib/python3.12/site-packages")
 try:
     from axiom.config import load_config
     from axiom.drs.processing.ccam import has_height, has_height_attr
