@@ -13,18 +13,19 @@ import shutil
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # --- Environment & Configuration ---
-SOURCE_REPO_PATH = "/g/data/xv83/users/bxn599/axiom_20i/axiom"
+REPO_BASE_DIR = "/g/data/xv83/users/bxn599/axiom_20i/axiom"
 
-if SOURCE_REPO_PATH not in sys.path:
-    sys.path.append(SOURCE_REPO_PATH)
+if REPO_BASE_DIR not in sys.path:
+    sys.path.insert(0, REPO_BASE_DIR)
 
 try:
     from axiom.config import load_config
     from axiom.drs.processing.ccam import has_height, has_height_attr
     AXIOM_CONFIG = load_config('drs_20i')
-except ImportError:
-    print("⚠️  Warning: Could not load axiom.config. Falling back to default encoding.")
-    AXIOM_CONFIG = None
+    print("✅ Successfully loaded axiom engine and processing extensions from source.")
+except ImportError as e:
+    print(f"❌ Error: Could not load core axiom components ({e}).")
+    sys.exit("CRITICAL: axiom package functions unavailable. Aborting script execution.")
 
 # --- Configuration Constants ---
 EXPECTED_VAR_LISTS = {
