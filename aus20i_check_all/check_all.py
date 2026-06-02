@@ -13,6 +13,11 @@ import shutil
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # --- Environment & Configuration ---
+CONDA_SITE_PACKAGES = "/g/data/xv83/users/bxn599/miniconda3/envs/axiom_20i/lib/python3.12/site-packages"
+
+if CONDA_SITE_PACKAGES not in sys.path:
+    site.addsitedir(CONDA_SITE_PACKAGES)
+
 REPO_BASE_DIR = "/g/data/xv83/users/bxn599/axiom_20i/axiom"
 
 if REPO_BASE_DIR not in sys.path:
