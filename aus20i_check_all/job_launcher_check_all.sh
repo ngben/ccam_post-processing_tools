@@ -5,8 +5,9 @@ BASE_DIRS=(
 #    "/g/data/xv83/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ERA5/evaluation"
 #    "/scratch/e53/bxn599/axiom_20i/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ACCESS-CM2/historical"
     "/scratch/e53/bxn599/axiom_20i_2026-05-25/CORDEX-CMIP6/DD/AUS-20i/CSIRO/EC-Earth3/historical"
-#    "/scratch/e53/bxn599/axiom_20i_2026-05-25/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ACCESS-ESM1-5/ssp126"
-#    "/scratch/e53/bxn599/axiom_20i_2026-05-25/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ACCESS-ESM1-5/ssp370"
+    "/scratch/e53/bxn599/axiom_20i_2026-05-25/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ACCESS-ESM1-5/historical"
+    "/scratch/e53/bxn599/axiom_20i_2026-05-25/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ACCESS-ESM1-5/ssp126"
+    "/scratch/e53/bxn599/axiom_20i_2026-05-25/CORDEX-CMIP6/DD/AUS-20i/CSIRO/ACCESS-ESM1-5/ssp370"
 #    "/scratch/xv83/bxn599/ERA5/evaluation"
 )
 
