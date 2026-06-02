@@ -13,7 +13,11 @@ import shutil
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # --- Environment & Configuration ---
-sys.path.append("/g/data/xv83/users/bxn599/miniconda3/envs/axiom_20i/lib/python3.12/site-packages")
+SOURCE_REPO_PATH = "/g/data/xv83/users/bxn599/axiom_20i/axiom"
+
+if SOURCE_REPO_PATH not in sys.path:
+    sys.path.append(SOURCE_REPO_PATH)
+
 try:
     from axiom.config import load_config
     from axiom.drs.processing.ccam import has_height, has_height_attr
