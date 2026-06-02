@@ -152,18 +152,27 @@ DATASET_TABLE = None
 # --- Helper & Checking Functions ---
 def load_dataset_table():
     global DATASET_TABLE
-    if DATASET_TABLE is not None: return True
+    if DATASET_TABLE is not None: 
+        return True
+        
     url = "https://raw.githubusercontent.com/WCRP-CORDEX/data-request-table/main/cmor-table/datasets.csv"
-    local_path = "/g/data/xv83/users/bxn599/aus20i_check_all/datasets.csv"
+    
     try:
         DATASET_TABLE = pd.read_csv(url)
         return True
     except Exception:
-        if os.path.exists(local_path):
-            try:
-                DATASET_TABLE = pd.read_csv(local_path)
-                return True
-            except Exception: pass
+        try:
+            # sys.modules['axiom.config'].__file__ points to: .../axiom/config.py
+            # .parent gives you the core .../axiom/ directory
+            if 'axiom.config' in sys.modules:
+                axiom_root = Path(sys.modules['axiom.config'].__file__).parent
+                local_path = axiom_root / "data" / "datasets.csv"
+                
+                if local_path.exists():
+                    DATASET_TABLE = pd.read_csv(local_path)
+                    return True
+        except Exception:
+            pass
         return False
 
 def get_driving_metadata_from_path(target_dir):
@@ -369,7 +378,10 @@ def check_global_attributes(ds, expected_dict, path_meta, freq):
 
 def check_variable_metadata(ds, variable_id, freq):
     errors = []
-    if not load_dataset_table(): return ["CRITICAL: Could not load DATASET_TABLE to check metadata."]
+    if not load_dataset_table(): 
+        errors.append("CRITICAL: Could not load DATASET_TABLE to check metadata.")
+        return errors
+        
     var_col = 'out_name' if 'out_name' in DATASET_TABLE.columns else 'variable_id'
     match = DATASET_TABLE[(DATASET_TABLE[var_col].str.lower() == variable_id.lower()) & (DATASET_TABLE['frequency'] == freq)]
     if match.empty: return [f"Notice: Variable '{variable_id}' at frequency '{freq}' not found in official CORDEX CSV."]
@@ -416,6 +428,7 @@ def apply_fixes(nc_path, variable_id, freq):
     """
     Opens the file with decode_times=True, applies missing attributes from CSV,
     generates time_bnds if required, and saves securely. Handles 'fx' (static) files.
+    Also renames the final netCDF filename dynamically if source_id structural updates occur.
     """
     print(f"      🔧 Applying fixes to {nc_path.name}...")
     nc_path = Path(nc_path)
@@ -428,6 +441,11 @@ def apply_fixes(nc_path, variable_id, freq):
     # Load dataset. decode_times=True is safe even if 'time' is missing.
     ds = xr.open_dataset(nc_path, decode_times=True)
     
+    # Apply expected global attributes early to catch updates like source_id 
+    for attr, expected_val in EXPECTED_GLOBAL_ATTRIBUTES.items():
+        if attr == "frequency": continue
+        ds.attrs[attr] = expected_val
+
     # reduce spatial domain if needed
     if 'lat' in ds.coords and 'lon' in ds.coords:
         lat_min_exp, lat_max_exp = EXPECTED_DOMAIN_BOUNDS["lat"]
@@ -465,28 +483,25 @@ def apply_fixes(nc_path, variable_id, freq):
             print(f"      🆔 Updating tracking_id prefix for {nc_path.name}")
             ds.attrs["tracking_id"] = new_tid
 
-    if not load_dataset_table():
-        ds.close()
-        return
+    if load_dataset_table():
+        var_col = 'out_name' if 'out_name' in DATASET_TABLE.columns else 'variable_id'
+        match = DATASET_TABLE[(DATASET_TABLE[var_col].str.lower() == variable_id.lower()) & (DATASET_TABLE['frequency'] == freq)]
+        
+        used_fallback = False
+        if match.empty and freq == "6hr":
+            match = DATASET_TABLE[(DATASET_TABLE[var_col].str.lower() == variable_id.lower()) & (DATASET_TABLE['frequency'] == "1hr")]
+            used_fallback = True
 
-    var_col = 'out_name' if 'out_name' in DATASET_TABLE.columns else 'variable_id'
-    match = DATASET_TABLE[(DATASET_TABLE[var_col].str.lower() == variable_id.lower()) & (DATASET_TABLE['frequency'] == freq)]
-    
-    used_fallback = False
-    if match.empty and freq == "6hr":
-        match = DATASET_TABLE[(DATASET_TABLE[var_col].str.lower() == variable_id.lower()) & (DATASET_TABLE['frequency'] == "1hr")]
-        used_fallback = True
-
-    # 1. Update Attributes
-    if not match.empty and variable_id in ds.variables:
-        row = match.iloc[0]
-        attr_map = {'cell_methods': 'cell_methods', 'units': 'units', 'long_name': 'long_name', 'standard_name': 'standard_name'}
-        for csv_col, attr_key in attr_map.items():
-            if csv_col in row and pd.notna(row[csv_col]):
-                new_val = str(row[csv_col]).strip()
-                if used_fallback and attr_key == 'cell_methods':
-                    new_val = new_val.replace("1hr", "6hr").replace("1-hour", "6-hour")
-                ds[variable_id].attrs[attr_key] = new_val
+        # 1. Update Attributes
+        if not match.empty and variable_id in ds.variables:
+            row = match.iloc[0]
+            attr_map = {'cell_methods': 'cell_methods', 'units': 'units', 'long_name': 'long_name', 'standard_name': 'standard_name'}
+            for csv_col, attr_key in attr_map.items():
+                if csv_col in row and pd.notna(row[csv_col]):
+                    new_val = str(row[csv_col]).strip()
+                    if used_fallback and attr_key == 'cell_methods':
+                        new_val = new_val.replace("1hr", "6hr").replace("1-hour", "6-hour")
+                    ds[variable_id].attrs[attr_key] = new_val
 
     # 2. Add time_bnds if required (only for non-fx variables)
     if has_time:
@@ -525,10 +540,6 @@ def apply_fixes(nc_path, variable_id, freq):
     if _has_height:
         encoding[hcoord] = AXIOM_CONFIG.encoding[hcoord]
 
-    # remove time chunks for fx
-    if not has_time and 'chunks' in encoding[variable_id]:
-        pass
-
     # Coordinates and Bounds (filtered for existence)
     for v in ['time', 'lat', 'lon', 'time_bnds', 'lat_bnds', 'lon_bnds']:
         if v in ds.variables or v in ds.coords:
@@ -546,10 +557,24 @@ def apply_fixes(nc_path, variable_id, freq):
                     
             encoding[v] = enc
 
-    # 4. Safe Write Operations
+    # 4. Determine Target Output Filename
+    # Splits the classic filename structure and substitutes the target source_id dynamically
+    filename_parts = nc_path.name.split('_')
+    final_output_path = nc_path
+
+    if len(filename_parts) >= 5:
+        current_filename_source_id = filename_parts[4]
+        target_source_id = ds.attrs.get("source_id", "CCAMoc-v2203-SN")
+        
+        if current_filename_source_id != target_source_id:
+            filename_parts[4] = target_source_id
+            new_filename = "_".join(filename_parts)
+            final_output_path = nc_path.parent / new_filename
+            print(f"      🔄 Filename source_id shift detected: Changing output name to {new_filename}")
+
+    # 5. Safe Write Operations
     shutil.move(str(nc_path), str(backup_path))
     try:
-        # Static files should not have unlimited_dims=['time']
         write_args = {
             "format": 'NETCDF4_CLASSIC',
             "encoding": encoding,
@@ -564,11 +589,20 @@ def apply_fixes(nc_path, variable_id, freq):
             
         ds.to_netcdf(str(nc_path), **write_args)
         
+        # Move updated temporary file to final target location if names diverge
+        if final_output_path != nc_path:
+            if final_output_path.exists():
+                final_output_path.unlink() # Avoid collisions
+            shutil.move(str(nc_path), str(final_output_path))
+            
         backup_path.unlink() 
         print(f"      ✅ Successfully updated.")
     except Exception as e:
         print(f"      ❌ Error saving {nc_path.name}: {e}. Rolling back.")
-        shutil.move(str(backup_path), str(nc_path))
+        if os.path.exists(backup_path):
+            if final_output_path.exists() and final_output_path != nc_path:
+                final_output_path.unlink()
+            shutil.move(str(backup_path), str(nc_path))
     finally:
         ds.close()
 
@@ -643,6 +677,10 @@ def main():
                             ref_cal = get_reference_calendar(nc_files, driving_source_id=source_id)
 
                             for nc in nc_files:
+                                # Quick verification check if file exists (since a previous iteration could rename it)
+                                if not nc.exists():
+                                    continue
+                                    
                                 variable_id = nc.name.split('_')[0]
                                 path_metadata = get_driving_metadata_from_path(nc.parent)
                                 issues = []
@@ -655,6 +693,9 @@ def main():
                                         issues.extend(check_lat_lon_boundaries(ds))
                                         issues.extend(check_domain_boundaries(ds))
                                         issues.extend(check_variable_metadata(ds, variable_id, freq))
+                                    # Safe filtering: if table failed to load but it's the ONLY error, we can still fix names
+                                    if issues == ["CRITICAL: Could not load DATASET_TABLE to check metadata."]:
+                                        pass 
                                 except Exception as e:
                                     issues.append(f"Attribute Read Error: {str(e)}")
                             
