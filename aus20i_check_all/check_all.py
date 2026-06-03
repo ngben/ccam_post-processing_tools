@@ -569,19 +569,33 @@ def apply_fixes(nc_path, variable_id, freq):
             encoding[v] = enc
 
     # 4. Determine Target Output Filename
-    # Splits the classic filename structure and substitutes the target source_id dynamically
     filename_parts = nc_path.name.split('_')
     final_output_path = nc_path
-
-    if len(filename_parts) >= 5:
-        current_filename_source_id = filename_parts[4]
-        target_source_id = ds.attrs.get("source_id", "CCAMoc-v2203-SN")
+    target_source_id = ds.attrs.get("source_id", "CCAMoc-v2203-SN")
+    
+    # --- DAMAGE RECOVERY BLOCK ---
+    # Detects if a previous run corrupted index 4 with the new source_id
+    if len(filename_parts) >= 7 and filename_parts[4] == "CCAMoc-v2203-SN":
+        # Pull the correct variant label dynamically from path metadata or fallback constants
+        path_metadata = get_driving_metadata_from_path(nc_path.parent)
+        correct_variant = path_metadata.get('driving_variant_label', 'r4i1p1f1')
         
-        if current_filename_source_id != target_source_id:
-            filename_parts[4] = target_source_id
-            new_filename = "_".join(filename_parts)
-            final_output_path = nc_path.parent / new_filename
-            print(f"      🔄 Filename source_id shift detected: Changing output name to {new_filename}")
+        print(f"      🩹 Healing corrupted filename variant slot: Replacing index 4 with '{correct_variant}'")
+        filename_parts[4] = correct_variant
+    # --- REMOVE DAMAGE RECOVERY BLOCK AFTER FIXING CM2 ---
+
+    old_source_id = "CCAM-v2203-SN"
+    
+    if old_source_id in filename_parts:
+        idx = filename_parts.index(old_source_id)
+        if filename_parts[idx] != target_source_id:
+            filename_parts[idx] = target_source_id
+            print(f"      🔄 Target source_id matched dynamically at index {idx} -> shifted to {target_source_id}")
+            
+    new_filename = "_".join(filename_parts)
+    if new_filename != nc_path.name:
+        final_output_path = nc_path.parent / new_filename
+        print(f"      🔄 Queuing filename migration: {nc_path.name} -> {new_filename}")
 
     # 5. Safe Write Operations
     shutil.move(str(nc_path), str(backup_path))
