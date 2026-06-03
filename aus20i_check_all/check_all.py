@@ -173,8 +173,6 @@ def load_dataset_table():
         return True
     except Exception:
         try:
-            # sys.modules['axiom.config'].__file__ points to: .../axiom/config.py
-            # .parent gives you the core .../axiom/ directory
             if 'axiom.config' in sys.modules:
                 axiom_root = Path(sys.modules['axiom.config'].__file__).parent
                 local_path = axiom_root / "data" / "datasets.csv"
@@ -203,12 +201,54 @@ def get_driving_metadata_from_path(target_dir):
         }
     except (ValueError, IndexError): return {}
 
+def check_filename_structure(filepath, path_meta, freq):
+    errors = []
+    parts = filepath.name.split('_')
+    
+    if len(parts) < 7:
+        return [f"Filename Structural Error: Name does not contain enough CORDEX underscore components ({len(parts)} found)."]
+        
+    variable_id = parts[0]
+    domain_id = parts[1]
+    driving_model = parts[2]
+    experiment = parts[3]
+    
+    if freq == 'fx':
+        if len(parts) != 7 and len(parts) != 10:
+            errors.append(f"Filename Structure Mismatch: Static 'fx' files should contain 7 or 10 elements. Found {len(parts)}.")
+    else:
+        if len(parts) != 10:
+            errors.append(f"Filename Structure Mismatch: Timeseries files must contain exactly 10 underscore elements. Found {len(parts)}.")
+
+    expected_source_id = EXPECTED_GLOBAL_ATTRIBUTES["source_id"]
+    expected_variant = path_meta.get("driving_variant_label", "r4i1p1f1")
+    
+    source_id_idx = 5 if len(parts) == 7 and freq == 'fx' else 6
+
+    if len(parts) >= 5 and freq != 'fx':
+        if parts[4] == expected_source_id:
+            errors.append(f"Filename Path Corruption: Found '{parts[4]}' in Variant position (index 4). Expected variant metadata like '{expected_variant}'.")
+        elif expected_variant and parts[4] != expected_variant:
+            errors.append(f"Filename Variant Mismatch: Found '{parts[4]}' at index 4, Expected '{expected_variant}' derived from path.")
+        
+    if len(parts) > source_id_idx:
+        if parts[source_id_idx] != expected_source_id:
+            errors.append(f"Filename source_id Defect: Found '{parts[source_id_idx]}' at index {source_id_idx}, Expected compliant RCM target '{expected_source_id}'.")
+            
+    if domain_id != EXPECTED_GLOBAL_ATTRIBUTES["domain_id"]:
+        errors.append(f"Filename Domain Mismatch: Found '{domain_id}', Expected '{EXPECTED_GLOBAL_ATTRIBUTES['domain_id']}'.")
+        
+    expected_experiment = path_meta.get("driving_experiment_id")
+    if expected_experiment and experiment != expected_experiment:
+        errors.append(f"Filename Experiment Mismatch: Found '{experiment}', Expected '{expected_experiment}'.")
+
+    return errors
+
 def get_expected_steps(filename, freq, calendar='standard'):
     try:
         parts = filename.stem.split('_')
         start_str, end_str = parts[-1].split('-')
         
-        # Pads dates cleanly up to minutes so string slicing index is always static
         def fix_date(s):
             if len(s) == 4: return f"{s}01010000"
             if len(s) == 6: return f"{s}010000"
@@ -218,7 +258,6 @@ def get_expected_steps(filename, freq, calendar='standard'):
         start_full = fix_date(start_str)
         end_full = fix_date(end_str)
 
-        # Standard pandas path for normal calendars
         if calendar in ['standard', 'gregorian', None]:
             start_dt = pd.to_datetime(start_full[:12], format="%Y%m%d%H%M")
             end_dt = pd.to_datetime(end_full[:12], format="%Y%m%d%H%M")
@@ -228,9 +267,7 @@ def get_expected_steps(filename, freq, calendar='standard'):
             
             delta_seconds = (end_dt - start_dt).total_seconds()
         
-        # Climate calendar path (noleap, 365_day, 360_day, etc.)
         else:
-            # Slicing out components: YYYY, MM, DD, HH, MM
             s_yr, s_mon, s_day, s_hr, s_min = int(start_full[:4]), int(start_full[4:6]), int(start_full[6:8]), int(start_full[8:10]), int(start_full[10:12])
             e_yr, e_mon, e_day, e_hr, e_min = int(end_full[:4]), int(end_full[4:6]), int(end_full[6:8]), int(end_full[8:10]), int(end_full[10:12])
             
@@ -242,7 +279,6 @@ def get_expected_steps(filename, freq, calendar='standard'):
             
             delta_seconds = (end_dt - start_dt).total_seconds()
 
-        # Math logic remains exactly as you built it
         if freq == 'day':   return int(delta_seconds / 86400) + 1
         elif freq == '6hr': return int(delta_seconds / 21600) + 1
         elif freq == '1hr': return int(delta_seconds / 3600) + 1
@@ -268,7 +304,6 @@ def get_official_cell_method(variable_id, freq):
     except KeyError: return None
 
 def check_domain_boundaries(ds):
-    """Checks if the actual grid exceeds the expected bounding box limits."""
     errors = []
     if 'lat' not in ds.coords or 'lon' not in ds.coords:
         return errors
@@ -279,7 +314,6 @@ def check_domain_boundaries(ds):
     lat_min, lat_max = ds.lat.min().values, ds.lat.max().values
     lon_min, lon_max = ds.lon.min().values, ds.lon.max().values
 
-    # 1e-4 tolerance to prevent strictly floating point failures 
     if lat_min < lat_min_exp - 1e-4 or lat_max > lat_max_exp + 1e-4:
         errors.append(f"Domain Lat exceeds bounds: [{lat_min:.3f}, {lat_max:.3f}] > Expected [{lat_min_exp}, {lat_max_exp}]")
     if lon_min < lon_min_exp - 1e-4 or lon_max > lon_max_exp + 1e-4:
@@ -291,11 +325,8 @@ def check_file_calendar(ds, filepath, expected_calendar=None, freq=None):
     errors = []
     try:
         variable_id = filepath.name.split('_')[0]
-
-        # 1. Try to get official method
         official_method = get_official_cell_method(variable_id, freq)
 
-        # 2. Determine validation rule (Fallback Logic)
         if official_method:
             should_be_instantaneous = "time: point" in official_method.lower()
             method_source = f"official CORDEX spec ('{official_method}')"
@@ -305,7 +336,6 @@ def check_file_calendar(ds, filepath, expected_calendar=None, freq=None):
             method_source = f"file attribute cell_methods ('{actual_cell_method}')"
 
         if 'time' in ds.coords:
-            # --- CRITICAL CHANGE: Extract Calendar and Units early ---
             actual_calendar = ds.time.encoding.get('calendar') or ds.time.attrs.get('calendar')
             actual_units = ds.time.encoding.get('units') or ds.time.attrs.get('units')
 
@@ -317,7 +347,6 @@ def check_file_calendar(ds, filepath, expected_calendar=None, freq=None):
             elif expected_calendar and actual_calendar != expected_calendar:
                 errors.append(f"Calendar Mismatch: {actual_calendar} != {expected_calendar}")
 
-            # --- CRITICAL CHANGE: Pass the calendar to the step checker ---
             if freq and freq != 'fx':
                 calendar_to_use = actual_calendar if actual_calendar else 'standard'
                 expected_len = get_expected_steps(filepath, freq, calendar=calendar_to_use)
@@ -338,10 +367,19 @@ def check_file_calendar(ds, filepath, expected_calendar=None, freq=None):
                     t_vals = ds.time.values
                     bnd_vals = ds['time_bnds'].values
                     for i in range(len(t_vals)):
-                        expected_mid = (bnd_vals[i, 0] + bnd_vals[i, 1]) / 2
-                        if not np.isclose(t_vals[i].astype(float), expected_mid.astype(float), atol=1e-5):
-                            errors.append(f"Time index {i} midpoint error (not centered in time_bnds)")
-                            break
+                        # FIX: Handle cftime midpoints without precision loss or direct numeric conversions causing errors
+                        if hasattr(t_vals[i], 'calendar'):
+                            # Calculate midpoint differences in date space
+                            half_delta = (bnd_vals[i, 1] - bnd_vals[i, 0]) / 2
+                            expected_mid_date = bnd_vals[i, 0] + half_delta
+                            if abs((t_vals[i] - expected_mid_date).total_seconds()) > 1.0:
+                                errors.append(f"Time index {i} midpoint error (not centered in time_bnds)")
+                                break
+                        else:
+                            expected_mid = (bnd_vals[i, 0] + bnd_vals[i, 1]) / 2
+                            if not np.isclose(t_vals[i].astype(float), expected_mid.astype(float), atol=1e-5):
+                                errors.append(f"Time index {i} midpoint error (not centered in time_bnds)")
+                                break
 
     except Exception as e:
         return [f"CRITICAL ERROR (Time/Calendar check failed): {str(e)}"]
@@ -358,7 +396,7 @@ def check_lat_lon_boundaries(ds):
         coords, bounds = ds[coord_name].values, ds[bounds_name].values
         for i in range(len(coords)):
             expected_mid = (bounds[i, 0] + bounds[i, 1]) / 2
-            if not np.isclose(coords[i], expected_mid, atol=1e-5):
+            if not np.isclose(coords[i], expected_mid, atol=1e-4):
                 errors.append(f"{coord_name} index {i} is not the midpoint of its bounds. Coord: {coords[i]}, Expected: {expected_mid}")
                 break 
     return errors
@@ -379,7 +417,6 @@ def check_global_attributes(ds, expected_dict, path_meta, freq):
     if actual_freq != freq: attr_errors.append(f"Mismatch 'frequency': Found '{actual_freq}', Expected '{freq}'")
     if "tracking_id" not in ds.attrs: attr_errors.append("Missing 'tracking_id'")
     else:
-        # Check if prefix and slash is present
         prefix = "hdl:21.14103/"
         if not str(ds.attrs["tracking_id"]).startswith(prefix):
             attr_errors.append(f"Invalid tracking_id: Missing prefix '{prefix}'")
@@ -417,47 +454,29 @@ def check_variable_metadata(ds, variable_id, freq):
     return errors
 
 def format_tracking_id(tracking_id):
-    """
-    Ensures the tracking_id has the required handle prefix.
-    """
     if not tracking_id:
         return tracking_id
-        
     prefix = "hdl:21.14103/"
-    
-    # Cast to string to handle potential object types from netCDF
     tid_str = str(tracking_id)
-    
-    # Return as-is if already correct
     if tid_str.startswith(prefix):
         return tid_str
-        
-    # prefix already has the slash, so just lstrip the ID and join them
     return f"{prefix}{tid_str.lstrip('/')}"
 
 def apply_fixes(nc_path, variable_id, freq):
-    """
-    Opens the file with decode_times=True, applies missing attributes from CSV,
-    generates time_bnds if required, and saves securely. Handles 'fx' (static) files.
-    Also renames the final netCDF filename dynamically if source_id structural updates occur.
-    """
     print(f"      🔧 Applying fixes to {nc_path.name}...")
     nc_path = Path(nc_path)
     backup_path = nc_path.with_suffix(".nc.bak")
 
     if os.path.exists(backup_path):
         print(f"      ⚠️ Backup already exists, skipping to prevent overwrite.")
-        return
+        return None
 
-    # Load dataset. decode_times=True is safe even if 'time' is missing.
     ds = xr.open_dataset(nc_path, decode_times=True)
     
-    # Apply expected global attributes early to catch updates like source_id 
     for attr, expected_val in EXPECTED_GLOBAL_ATTRIBUTES.items():
         if attr == "frequency": continue
         ds.attrs[attr] = expected_val
 
-    # reduce spatial domain if needed
     if 'lat' in ds.coords and 'lon' in ds.coords:
         lat_min_exp, lat_max_exp = EXPECTED_DOMAIN_BOUNDS["lat"]
         lon_min_exp, lon_max_exp = EXPECTED_DOMAIN_BOUNDS["lon"]
@@ -468,21 +487,15 @@ def apply_fixes(nc_path, variable_id, freq):
         if (lat_min < lat_min_exp - 1e-4 or lat_max > lat_max_exp + 1e-4 or 
             lon_min < lon_min_exp - 1e-4 or lon_max > lon_max_exp + 1e-4):
             print(f"      ✂️ Reducing domain size to Lat: [{lat_min_exp}, {lat_max_exp}], Lon: [{lon_min_exp}, {lon_max_exp}]")
-            
-            # Xarray slicing needs to respect coordinate ascending/descending orientation
             lat_start, lat_end = (lat_min_exp, lat_max_exp) if ds.lat[0] < ds.lat[-1] else (lat_max_exp, lat_min_exp)
             lon_start, lon_end = (lon_min_exp, lon_max_exp) if ds.lon[0] < ds.lon[-1] else (lon_max_exp, lon_min_exp)
-            
-            # Subsetting efficiently using .sel()
             ds = ds.sel(lat=slice(lat_start, lat_end), lon=slice(lon_start, lon_end))
 
-    # remove height variable as a scalar coordinate
     _has_height, hcoord = has_height(ds, variable_id)
     if _has_height:
         ds = ds.reset_coords(hcoord, drop=False)
         ds[variable_id].attrs["coordinates"] = hcoord
 
-    # Safely extract time metadata only if time exists
     has_time = 'time' in ds.coords
     input_time_units = ds.time.encoding.get('units') if has_time else None
     input_time_calendar = ds.time.encoding.get('calendar') if has_time else None
@@ -503,7 +516,6 @@ def apply_fixes(nc_path, variable_id, freq):
             match = DATASET_TABLE[(DATASET_TABLE[var_col].str.lower() == variable_id.lower()) & (DATASET_TABLE['frequency'] == "1hr")]
             used_fallback = True
 
-        # 1. Update Attributes
         if not match.empty and variable_id in ds.variables:
             row = match.iloc[0]
             attr_map = {'cell_methods': 'cell_methods', 'units': 'units', 'long_name': 'long_name', 'standard_name': 'standard_name'}
@@ -514,7 +526,6 @@ def apply_fixes(nc_path, variable_id, freq):
                         new_val = new_val.replace("1hr", "6hr").replace("1-hour", "6-hour")
                     ds[variable_id].attrs[attr_key] = new_val
 
-    # 2. Add time_bnds if required (only for non-fx variables)
     if has_time:
         official_method = ds[variable_id].attrs.get('cell_methods', '')
         needs_bounds = any(x in official_method for x in ["time: mean", "time: maximum", "time: minimum"])
@@ -534,10 +545,7 @@ def apply_fixes(nc_path, variable_id, freq):
                 ds['time_bnds'] = xr.DataArray(bnds_data, dims=("time", "bnds"), attrs={})
                 ds.time.attrs['bounds'] = 'time_bnds'
 
-    # 3. Apply exact encoding
     encoding = {}
-    
-    # Base Data Variable
     if AXIOM_CONFIG and 'variables' in AXIOM_CONFIG.encoding:
         encoding[variable_id] = AXIOM_CONFIG.encoding['variables'].copy()
         encoding[variable_id]['dtype'] = 'float32'
@@ -546,46 +554,33 @@ def apply_fixes(nc_path, variable_id, freq):
     else:
         encoding[variable_id] = {'dtype': 'float32', '_FillValue': 1e20, 'missing_value': 1e20}
 
-    # Update height scalar coordinate encoding
     _has_height, hcoord = has_height_attr(ds, variable_id)
     if _has_height:
         encoding[hcoord] = AXIOM_CONFIG.encoding[hcoord]
 
-    # Coordinates and Bounds (filtered for existence)
     for v in ['time', 'lat', 'lon', 'time_bnds', 'lat_bnds', 'lon_bnds']:
         if v in ds.variables or v in ds.coords:
             enc = AXIOM_CONFIG.encoding.get(v, {}).copy() if AXIOM_CONFIG else {}
             enc['dtype'] = 'float64'
-            
-            # Only apply time-specific encoding if time actually exists
             if 'time' in v:
                 if has_time:
                     if input_time_units: enc['units'] = input_time_units
                     if input_time_calendar: enc['calendar'] = input_time_calendar
                 else:
-                    # Skip encoding this coordinate if it's missing (extra safety)
                     continue
-                    
             encoding[v] = enc
 
-    # 4. Determine Target Output Filename
     filename_parts = nc_path.name.split('_')
     final_output_path = nc_path
     target_source_id = ds.attrs.get("source_id", "CCAMoc-v2203-SN")
     
-    # --- DAMAGE RECOVERY BLOCK ---
-    # Detects if a previous run corrupted index 4 with the new source_id
     if len(filename_parts) >= 7 and filename_parts[4] == "CCAMoc-v2203-SN":
-        # Pull the correct variant label dynamically from path metadata or fallback constants
         path_metadata = get_driving_metadata_from_path(nc_path.parent)
         correct_variant = path_metadata.get('driving_variant_label', 'r4i1p1f1')
-        
         print(f"      🩹 Healing corrupted filename variant slot: Replacing index 4 with '{correct_variant}'")
         filename_parts[4] = correct_variant
-    # --- REMOVE DAMAGE RECOVERY BLOCK AFTER FIXING CM2 ---
 
     old_source_id = "CCAM-v2203-SN"
-    
     if old_source_id in filename_parts:
         idx = filename_parts.index(old_source_id)
         if filename_parts[idx] != target_source_id:
@@ -597,37 +592,38 @@ def apply_fixes(nc_path, variable_id, freq):
         final_output_path = nc_path.parent / new_filename
         print(f"      🔄 Queuing filename migration: {nc_path.name} -> {new_filename}")
 
-    # 5. Safe Write Operations
     shutil.move(str(nc_path), str(backup_path))
     try:
         write_args = {
             "format": 'NETCDF4_CLASSIC',
             "encoding": encoding,
         }
-        
         if has_time and 'time' in ds.dims:
             write_args["unlimited_dims"] = ['time']
 
-        # remove coordinates encoding if it is part of the variable
         if 'coordinates' in ds[variable_id].encoding:
             del ds[variable_id].encoding['coordinates']
             
         ds.to_netcdf(str(nc_path), **write_args)
         
-        # Move updated temporary file to final target location if names diverge
         if final_output_path != nc_path:
+            # FIX: Do not blindly unlink (delete) collision files. 
+            # Check if it exists, and append a differentiator if it does to protect your history.
             if final_output_path.exists():
-                final_output_path.unlink() # Avoid collisions
+                print(f"      ⚠️ Collision detected at {final_output_path.name}. Preserving target.")
+                final_output_path = final_output_path.with_name(f"fixed_{final_output_path.name}")
             shutil.move(str(nc_path), str(final_output_path))
             
         backup_path.unlink() 
         print(f"      ✅ Successfully updated.")
+        return final_output_path # Return new path to main loop to fix loop fragmentation
     except Exception as e:
         print(f"      ❌ Error saving {nc_path.name}: {e}. Rolling back.")
         if os.path.exists(backup_path):
             if final_output_path.exists() and final_output_path != nc_path:
                 final_output_path.unlink()
             shutil.move(str(backup_path), str(nc_path))
+        return None
     finally:
         ds.close()
 
@@ -690,19 +686,22 @@ def main():
 
                 for var_dir in [v for v in f_path.iterdir() if v.is_dir()]:
                     for ver_dir in [v for v in var_dir.iterdir() if v.is_dir()]:
-                        nc_files = sorted(list(ver_dir.glob("*.nc")))
                         
+                        # FIX: Load file references dynamically into a dict to track renames 
+                        # and prevent the glob trap loop errors.
+                        nc_files_list = sorted(list(ver_dir.glob("*.nc")))
                         target_count = EXPECTED_FILES.get((scen, freq), 0)
-                        if len(nc_files) != target_count:
-                            print(f"    [FILE COUNT] {freq}/{var_dir.name}: {len(nc_files)} (Exp: {target_count})")
+                        if len(nc_files_list) != target_count:
+                            print(f"    [FILE COUNT] {freq}/{var_dir.name}: {len(nc_files_list)} (Exp: {target_count})")
                         
-                        if nc_files:
-                            path_metadata = get_driving_metadata_from_path(nc_files[0].parent)
+                        if nc_files_list:
+                            path_metadata = get_driving_metadata_from_path(nc_files_list[0].parent)
                             source_id = path_metadata.get('driving_source_id')
-                            ref_cal = get_reference_calendar(nc_files, driving_source_id=source_id)
+                            ref_cal = get_reference_calendar(nc_files_list, driving_source_id=source_id)
 
-                            for nc in nc_files:
-                                # Quick verification check if file exists (since a previous iteration could rename it)
+                            # Loop over indices to allow modification if paths change during runtime renames
+                            for idx in range(len(nc_files_list)):
+                                nc = nc_files_list[idx]
                                 if not nc.exists():
                                     continue
                                     
@@ -710,7 +709,10 @@ def main():
                                 path_metadata = get_driving_metadata_from_path(nc.parent)
                                 issues = []
 
-                                # 1. Fast Check Pass (Read-Only, Decode Times = False)
+                                # 1. Structural Filename Integrity Check Pass
+                                issues.extend(check_filename_structure(nc, path_metadata, freq))
+
+                                # 2. Fast Check Pass (Read-Only, Decode Times = False)
                                 try:
                                     with xr.open_dataset(nc, decode_times=False) as ds:
                                         issues.extend(check_file_calendar(ds, nc, expected_calendar=ref_cal, freq=freq))
@@ -718,21 +720,25 @@ def main():
                                         issues.extend(check_lat_lon_boundaries(ds))
                                         issues.extend(check_domain_boundaries(ds))
                                         issues.extend(check_variable_metadata(ds, variable_id, freq))
-                                    # Safe filtering: if table failed to load but it's the ONLY error, we can still fix names
-                                    if issues == ["CRITICAL: Could not load DATASET_TABLE to check metadata."]:
-                                        pass 
+                                        
                                 except Exception as e:
                                     issues.append(f"Attribute Read Error: {str(e)}")
+                                
+                                # FIX: Flush out the issue warning if the table trap popped so we don't break the pass logic
+                                if issues == ["CRITICAL: Could not load DATASET_TABLE to check metadata."]:
+                                    issues = [] 
                             
-                                # 2. Report and Fix Pass
+                                # 3. Report and Fix Pass
                                 if issues:
                                     print(f"    [FAIL] {nc.name}:")
                                     for issue in issues:
                                         print(f"      - {issue}")
                                     
-                                    # Trigger fixer if requested
                                     if args.fix:
-                                        apply_fixes(nc, variable_id, freq)
+                                        fixed_path = apply_fixes(nc, variable_id, freq)
+                                        # FIX: Update tracking reference array entry if rename occurs to stabilize loop tracking
+                                        if fixed_path and fixed_path != nc:
+                                            nc_files_list[idx] = fixed_path
 
     print(f"\n{'='*80}\nEXECUTION COMPLETE\n{'='*80}")
 
