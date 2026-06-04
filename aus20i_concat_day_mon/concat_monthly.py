@@ -51,10 +51,21 @@ def concatenate_files(start_year, end_year, dir_path, backup_dir):
         # We look for the specific 1-year monthly format (Jan to Dec)
         # Using a regex to find the matching file to be safe against varying prefixes
         pattern = re.compile(rf'_({year}01-{year}12)\.nc$')
+        file_found = False
+        
         for filename in os.listdir(dir_path):
             if pattern.search(filename):
                 source_files.append(os.path.join(dir_path, filename))
+                file_found = True
                 break # Move to next year once found
+
+        # --- NEW SAFETY CHECK ---
+        if not file_found:
+            raise ValueError(
+                f"\n🚨 CRITICAL ERROR: Missing data for year {year} in directory: {dir_path}\n"
+                f"Attempted to concatenate range {start_year}-{end_year}, but years must be strictly consecutive. "
+                f"Aborting to prevent non-consecutive merging."
+            )
 
     # If there is only 1 (or 0) files, there is nothing to concatenate! Skip it.
     if len(source_files) <= 1:
